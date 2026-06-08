@@ -1,49 +1,82 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 class DecisionAgent:
     """Orchestration controller which calls routing, cost agents and explains decisions."""
-    def __init__(self, routing_agent, cost_agent, disruption_agent, monitoring_agent, graph):
+    def __init__(self, routing_agent, cost_agent, disruption_agent, monitoring_agent, graph, fleet: List[Dict[str, Any]]):
         self.routing = routing_agent
         self.cost = cost_agent
         self.disruption = disruption_agent
         self.monitor = monitoring_agent
         self.graph = graph
+        self.fleet = fleet
         self.current_plan = None
         self.previous_plan = None
 
     def optimize_route(self, source: int, target: int) -> Dict[str, Any]:
-        plan = self.routing.shortest_path_by_time(source, target)
-        if 'error' in plan:
-            return {"error": plan['error']}
-        cost_info = self.cost.estimate_cost(plan['distance'])
-        explanation = self.explain_decision(source, target, plan, cost_info)
+        vehicle_plans = []
+        for vehicle in self.fleet:
+            route = self.routing.shortest_path_by_time(source, target)
+            if 'error' in route:
+                vehicle_plans.append({"vehicle": vehicle, "error": route['error']})
+                continue
+            cost_info = self.cost.estimate_cost(route['distance'], vehicle['efficiency_km_per_liter'])
+            vehicle_plans.append({"vehicle": vehicle, "route": route, "cost": cost_info})
+
+        best = min(
+            [plan for plan in vehicle_plans if 'cost' in plan],
+            key=lambda plan: plan['cost']['total_cost'],
+            default=None,
+        )
+        if not best:
+            return {"error": "No feasible route found for any vehicle."}
+
+        explanation = self.explain_decision(source, target, best, vehicle_plans)
         self.previous_plan = self.current_plan
-        self.current_plan = {"route": plan, "cost": cost_info, "explanation": explanation}
+        self.current_plan = {
+            "best_plan": best,
+            "vehicle_plans": vehicle_plans,
+            "explanation": explanation,
+        }
         return self.current_plan
 
     def handle_disruption(self, event: Dict[str, Any], source: int, target: int) -> Dict[str, Any]:
-        # apply disruption
         if event['type'] == 'traffic':
             self.disruption.apply_traffic_disruption(event['edge'], event['severity'])
+        elif event['type'] == 'weather':
+            self.disruption.apply_weather_disruption(event['edge'], event['severity'], event.get('weather', 'unknown'))
         elif event['type'] == 'fuel':
             self.cost.update_fuel_price(event['new_price'])
             self.disruption.apply_fuel_change(event['new_price'])
 
-        # re-optimize
         updated = self.optimize_route(source, target)
         return {"event": event, "updated_plan": updated}
 
-    def explain_decision(self, source, target, plan: Dict, cost_info: Dict) -> str:
-        # Provide human-readable explanation
-        path = plan.get('path')
-        time = plan.get('time')
-        dist = plan.get('distance')
+    def compare_routes(self, previous: Dict[str, Any], current: Dict[str, Any]) -> str:
+        if not previous or 'best_plan' not in previous or 'best_plan' not in current:
+            return "This is the first optimization cycle."
+
+        prev_cost = previous['best_plan']['cost']['total_cost']
+        curr_cost = current['best_plan']['cost']['total_cost']
+        diff = curr_cost - prev_cost
+        if diff > 0:
+            return f"Cost rose by ${diff:.2f} due to disruption and re-routing."
+        if diff < 0:
+            return f"Cost improved by ${abs(diff):.2f} after choosing a more efficient route or vehicle."
+        return "The cost remained stable despite the disruption."
+
+    def explain_decision(self, source, target, best_plan: Dict[str, Any], vehicle_plans: List[Dict[str, Any]]) -> str:
+        route = best_plan['route']
+        cost_info = best_plan['cost']
+        vehicle = best_plan['vehicle']
         explanation = (
-            f"Selected route from {source} to {target} via nodes {path}. "
-            f"Estimated travel time {time:.2f} minutes and distance {dist:.2f} km. "
-            f"Estimated cost ${cost_info['total_cost']:.2f} (fuel ${cost_info['fuel_cost']:.2f})."
+            f"Best route for vehicle {vehicle['name']} ({vehicle['type']}) uses nodes {route['path']} with "
+            f"estimated travel time {route['time']:.2f} min and distance {route['distance']:.2f} km. "
+            f"Total cost is ${cost_info['total_cost']:.2f} and estimated emissions are {cost_info['carbon_kg']:.2f} kg CO2. "
         )
-        # mention disruptions if present
-        if getattr(self.disruption, 'disrupted_edges', None):
-            explanation += f" Disruptions detected on edges: {list(self.disruption.disrupted_edges.keys())}."
+        if self.disruption.disrupted_edges:
+            explanation += (
+                f"Re-optimization was triggered because of disruptions on {len(self.disruption.disrupted_edges)} segment(s). "
+                f"Affected edges: {list(self.disruption.disrupted_edges.keys())}. "
+            )
+        explanation += self.compare_routes(self.previous_plan, self.current_plan)
         return explanation

@@ -2,36 +2,41 @@ import networkx as nx
 import random
 import math
 
-def generate_grid_graph(rows=3, cols=4, spacing=1.0, speed=40.0):
-    """Generates a grid-like graph with positions and edge attributes.
-
-    Returns: Graph with node positions, edges have distance and travel_time.
-    """
+def generate_grid_graph(rows=4, cols=5, spacing=1.0, speed=40.0):
+    """Generate a grid-style logistics graph with nodes and realistic travel attributes."""
     G = nx.Graph()
     node_id = 0
     positions = {}
+
     for r in range(rows):
         for c in range(cols):
-            G.add_node(node_id)
             positions[node_id] = (c * spacing, r * spacing)
+            G.add_node(node_id, pos=positions[node_id], name=f"Location {node_id}")
             node_id += 1
 
     def euclid(a, b):
         return math.hypot(a[0] - b[0], a[1] - b[1])
 
     for i in G.nodes:
-        x1 = positions[i]
         for j in G.nodes:
             if i >= j:
                 continue
-            x2 = positions[j]
-            # connect near neighbors only (grid connectivity)
-            if abs(x1[0] - x2[0]) <= spacing + 1e-6 and abs(x1[1] - x2[1]) <= spacing + 1e-6:
-                d = euclid(x1, x2)
-                travel_time = d / speed * 60.0  # minutes
-                G.add_edge(i, j, distance=d, time=travel_time, base_time=travel_time)
+            a = positions[i]
+            b = positions[j]
+            if abs(a[0] - b[0]) <= spacing + 1e-6 and abs(a[1] - b[1]) <= spacing + 1e-6:
+                distance = euclid(a, b)
+                base_time = distance / speed * 60.0
+                variation = random.uniform(0.9, 1.15)
+                travel_time = base_time * variation
+                G.add_edge(
+                    i,
+                    j,
+                    distance=round(distance, 3),
+                    time=round(travel_time, 3),
+                    base_time=round(base_time, 3),
+                    road_quality=random.choice(["good", "fair", "poor"]),
+                )
 
-    nx.set_node_attributes(G, positions, "pos")
     return G
 
 def sample_graph():

@@ -6,9 +6,9 @@ Create an autonomous multi-agent system that optimizes transportation routes, co
 
 Solution Overview:
 
-- Backend: FastAPI with modular agents (Monitoring, Routing, Cost, Disruption, Decision).
-- Frontend: Streamlit dashboard to run optimization, inject disruptions, and view explanations and visualizations.
-- Optimization: NetworkX weighted graph for route planning (path by travel time), with cost computed by distance, fuel price, and efficiency.
+- Backend: FastAPI with modular agents (Monitoring, Routing, Cost, Disruption, Decision) plus mocked external feed support.
+- Frontend: Streamlit dashboard to run optimization, inject disruptions, compare initial and updated routes, and view explanations.
+- Optimization: NetworkX grid graph planner with vehicle-aware cost, emissions scoring, and weather/traffic disruption handling.
 
 Architecture (text diagram):
 
@@ -50,9 +50,17 @@ streamlit run frontend/app.py
 
 Demo flow
 
-- Click `Run Optimization` to compute an initial route and cost.
-- Click `Inject Disruption` to simulate a traffic or fuel event.
-- System automatically re-optimizes and displays updated route, cost comparison, and AI explanation.
+- Click `Run Optimization` to compute an initial route and fleet-aware route plan.
+- Click `Generate a random disruption` to simulate a traffic, weather, or fuel event.
+- Use `Inject custom disruption` to test traffic delays, weather slowdowns, or fuel price shocks.
+- View initial/updated routes, cost comparison, disruption details, and AI explanations.
+
+Bonus features
+
+- Multi-vehicle fleet planning with van, truck, and hybrid options.
+- Carbon emission scoring for route decisions.
+- Mock external real-time feed endpoints for traffic and weather data.
+- Reinforcement learning placeholder agent included for future policy upgrades.
 
 Future improvements
 
