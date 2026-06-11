@@ -3,6 +3,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 import uvicorn
 import random
+import logging
+
+# Basic logging - production systems should replace with structured logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 
 from backend.data.sample_data import sample_graph
 from backend.agents.monitoring_agent import MonitoringAgent
@@ -11,6 +15,8 @@ from backend.agents.cost_agent import CostAgent
 from backend.agents.disruption_agent import DisruptionAgent
 from backend.agents.decision_agent import DecisionAgent
 from backend.agents.external_api_agent import RealTimeDataFetcher
+from backend.agents.langgraph_agent import LangGraphAgent
+import os
 
 app = FastAPI(title="Agentic AI Logistics Optimization System")
 
@@ -18,7 +24,10 @@ app = FastAPI(title="Agentic AI Logistics Optimization System")
 G = sample_graph()
 monitor = MonitoringAgent(G)
 disruption = DisruptionAgent(G)
-real_time_fetcher = RealTimeDataFetcher()
+# LangGraph integration (optional)
+enable_lg = os.getenv("ENABLE_LANGGRAPH", "false").lower() in ("1", "true", "yes")
+lg_model = os.getenv("LANGGRAPH_MODEL", None)
+langgraph_agent = LangGraphAgent(enable_langgraph=enable_lg, llm_name=lg_model)
 routing = RoutingAgent(G)
 cost_agent = CostAgent(fuel_price=monitor.current_fuel_price)
 fleet = [
@@ -26,7 +35,7 @@ fleet = [
     {"id": 2, "name": "Electric Truck", "type": "truck", "efficiency_km_per_liter": 6.5, "capacity": 2500},
     {"id": 3, "name": "Hybrid Fleet Car", "type": "hybrid", "efficiency_km_per_liter": 15.0, "capacity": 800},
 ]
-decision = DecisionAgent(routing, cost_agent, disruption, monitor, G, fleet)
+decision = DecisionAgent(routing, cost_agent, disruption, monitor, G, fleet, langgraph_agent=langgraph_agent)
 
 
 class OptimizeRequest(BaseModel):

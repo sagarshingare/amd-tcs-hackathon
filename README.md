@@ -115,6 +115,24 @@ streamlit run frontend/app.py
 ```
 A browser window opens automatically at `http://localhost:8501`
 
+### Optional: Enable LangGraph for agent communication
+
+If you want final decision explanations composed by a LangGraph network, install the optional dependency and enable it with an environment variable.
+
+```bash
+# (Optional) Install LangGraph - replace with the package name your infra requires
+pip install langgraph
+
+# Enable in environment and optionally set model
+export ENABLE_LANGGRAPH=true
+export LANGGRAPH_MODEL="your-llm-model-name"
+
+# Restart backend after changing env vars
+uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The system will gracefully fall back to an internal explanation composer if LangGraph is not installed or fails to initialize.
+
 ---
 
 ## 🎮 How to Use It

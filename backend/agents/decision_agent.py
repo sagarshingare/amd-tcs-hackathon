@@ -1,14 +1,24 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from backend.agents.langgraph_agent import LangGraphAgent
+
 
 class DecisionAgent:
-    """Orchestration controller which calls routing, cost agents and explains decisions."""
-    def __init__(self, routing_agent, cost_agent, disruption_agent, monitoring_agent, graph, fleet: List[Dict[str, Any]]):
+    """Orchestration controller which calls routing, cost agents and explains decisions.
+
+    This agent now supports optional LangGraph-based explanation composition. If
+    LangGraph is enabled (configured via `LangGraphAgent`), final decision
+    explanations are composed by the LangGraph network; otherwise a deterministic
+    textual explanation is returned.
+    """
+
+    def __init__(self, routing_agent, cost_agent, disruption_agent, monitoring_agent, graph, fleet: List[Dict[str, Any]], langgraph_agent: Optional[LangGraphAgent] = None):
         self.routing = routing_agent
         self.cost = cost_agent
         self.disruption = disruption_agent
         self.monitor = monitoring_agent
         self.graph = graph
         self.fleet = fleet
+        self.langgraph = langgraph_agent or LangGraphAgent(enable_langgraph=False)
         self.current_plan = None
         self.previous_plan = None
 
@@ -30,7 +40,15 @@ class DecisionAgent:
         if not best:
             return {"error": "No feasible route found for any vehicle."}
 
-        explanation = self.explain_decision(source, target, best, vehicle_plans)
+        # Build context for explanation (used by LangGraph or fallback)
+        context = {
+            "source": source,
+            "target": target,
+            "best_plan": best,
+            "vehicle_plans": vehicle_plans,
+            "disruptions": getattr(self.disruption, 'disrupted_edges', {}),
+        }
+        explanation = self.langgraph.compose_explanation({**context, **{"real_time_data": None}})
         self.previous_plan = self.current_plan
         self.current_plan = {
             "best_plan": best,
@@ -65,15 +83,17 @@ class DecisionAgent:
         return "The cost remained stable despite the disruption."
 
     def explain_decision(self, source, target, best_plan: Dict[str, Any], vehicle_plans: List[Dict[str, Any]]) -> str:
-        route = best_plan['route']
-        cost_info = best_plan['cost']
-        vehicle = best_plan['vehicle']
+        # Backwards-compatible local explanation helper retained for callers
+        # that prefer a direct string (LangGraph is used elsewhere).
+        route = best_plan.get('route', {})
+        cost_info = best_plan.get('cost', {})
+        vehicle = best_plan.get('vehicle', {})
         explanation = (
-            f"Best route for vehicle {vehicle['name']} ({vehicle['type']}) uses nodes {route['path']} with "
-            f"estimated travel time {route['time']:.2f} min and distance {route['distance']:.2f} km. "
-            f"Total cost is ${cost_info['total_cost']:.2f} and estimated emissions are {cost_info['carbon_kg']:.2f} kg CO2. "
+            f"Best route for vehicle {vehicle.get('name','unknown')} ({vehicle.get('type','unknown')}) uses nodes {route.get('path',[])} with "
+            f"estimated travel time {route.get('time',0):.2f} min and distance {route.get('distance',0):.2f} km. "
+            f"Total cost is ${cost_info.get('total_cost',0):.2f} and estimated emissions are {cost_info.get('carbon_kg',0):.2f} kg CO2. "
         )
-        if self.disruption.disrupted_edges:
+        if getattr(self.disruption, 'disrupted_edges', {}):
             explanation += (
                 f"Re-optimization was triggered because of disruptions on {len(self.disruption.disrupted_edges)} segment(s). "
                 f"Affected edges: {list(self.disruption.disrupted_edges.keys())}. "
